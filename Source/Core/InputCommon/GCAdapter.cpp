@@ -179,8 +179,6 @@ static void ScanThreadFunc()
       {
         std::lock_guard<std::mutex> lk(s_init_mutex);
         Setup();
-        if ((s_status == 1) && s_detect_callback != nullptr)
-          s_detect_callback();
       }
       Common::SleepCurrentThread(500);
     }
@@ -240,6 +238,11 @@ static void Setup()
 {
   libusb_device** list;
   ssize_t cnt = libusb_get_device_list(s_libusb_context, &list);
+  int prev_status = s_status;
+
+  // Reset the error status in case the adapter gets unplugged
+  if (s_status < 0)
+    s_status = NO_ADAPTER_DETECTED;
 
   for (int i = 0; i < SerialInterface::MAX_SI_CHANNELS; i++)
   {
@@ -257,6 +260,9 @@ static void Setup()
       break;
     }
   }
+
+  if (s_status != ADAPTER_DETECTED && prev_status != s_status && s_detect_callback != nullptr)
+    s_detect_callback();
 
   libusb_free_device_list(list, 1);
 }
