@@ -69,6 +69,9 @@ static bool s_libusb_hotplug_enabled = false;
 #if defined(LIBUSB_API_VERSION) && LIBUSB_API_VERSION >= 0x01000102
 static libusb_hotplug_callback_handle s_hotplug_handle;
 #endif
+#if defined(__APPLE__)
+static bool s_libusb_reset_done = false;
+#endif
 
 static u8 s_endpoint_in = 0;
 static u8 s_endpoint_out = 0;
@@ -116,6 +119,7 @@ static int HotplugCallback(libusb_context* ctx, libusb_device* dev, libusb_hotpl
 {
   if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED)
   {
+    puts("Device arrived");
     if (s_handle == nullptr && CheckDeviceAccess(dev))
     {
       std::lock_guard<std::mutex> lk(s_init_mutex);
@@ -128,6 +132,7 @@ static int HotplugCallback(libusb_context* ctx, libusb_device* dev, libusb_hotpl
   }
   else if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT)
   {
+    puts("Device left");
     if (s_handle != nullptr && libusb_get_device(s_handle) == dev)
       Reset();
 
@@ -334,6 +339,22 @@ static bool CheckDeviceAccess(libusb_device* device)
     }
 
     ret = libusb_claim_interface(s_handle, 0);
+
+    #if defined(__APPLE__)
+    if (ret == LIBUSB_ERROR_ACCESS && !s_libusb_reset_done)
+    {
+      // Reset the interface to make the HID driver ungrab it
+      (void)libusb_reset_device(s_handle);
+
+      // The adapter should now disappear and reappear; in the meantime, pretend it’s not connected
+
+      s_libusb_reset_done = true; // Avoid potential infinite reset loops
+      libusb_close(s_handle);
+      s_handle = nullptr;
+      return false;
+    }
+    #endif
+
     if (ret)
     {
       ERROR_LOG(SERIALINTERFACE, "libusb_claim_interface failed with error: %d", ret);
